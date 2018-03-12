@@ -1,0 +1,3 @@
+SUBDIRS = libkava \
+	  kavavm \
+	  kavac

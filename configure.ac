@@ -3,6 +3,7 @@ AC_INIT([kava], [0.1], [shilling.jake@gmail.com])
 AM_INIT_AUTOMAKE([-Wall -Werror subdir-objects])
 AC_CONFIG_SRCDIR([src/kavac/main.c])
 AC_CONFIG_HEADERS([src/config.h])
+AC_CONFIG_MACRO_DIRS([m4])
 
 # Checks for programs.
 AC_PROG_CC

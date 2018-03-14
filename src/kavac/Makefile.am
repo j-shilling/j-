@@ -1,3 +1,9 @@
 bin_PROGRAMS = kavac
+AM_YFLAGS = -d
 
-kavac_SOURCES = main.c
+BUILT_SOURCES = parser.h
+
+kavac_SOURCES = main.c \
+                kavac.c \
+                lexer.l \
+                parser.y

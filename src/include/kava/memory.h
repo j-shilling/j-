@@ -20,9 +20,9 @@
 extern "C" {
 #endif
 
-    extern void *kavac_alloc  (size_t size);
-    extern void *kavac_alloc0 (size_t size);
-    extern void  kavac_free   (void *ptr);
+    extern void *kava_alloc  (size_t size);
+    extern void *kava_alloc0 (size_t size);
+    extern void  kava_free   (void *ptr);
 
 #ifdef __cplusplus
 }

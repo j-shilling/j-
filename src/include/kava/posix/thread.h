@@ -16,6 +16,7 @@ extern "C" {
 #  define kava_cond   pthread_cond_t
 
 #  define kava_thread_create(thread,func,arg)  pthread_create (thread, ((const pthread_attr_t *)0), func, arg)
+#  define kava_thread_join(thread,retptr) pthread_join (thread, retptr)
 #  define kava_thread_exit(retval) pthread_exit (retval)
 #  define kava_mutex_init(mutexptr) pthread_mutex_init (mutexptr, ((const pthread_mutexattr_t *)0))
 #  define kava_mutex_lock(mutexptr) pthread_mutex_lock (mutexptr)

@@ -18,10 +18,15 @@ AC_PROG_LIBTOOL
 # Checks for libraries.
 gl_LIBUNISTRING
 
+AX_PTHREAD([
+  AC_DEFINE([HAVE_PTHREAD_H], [1], [Define 1 if you have the <pthread.h> header file.])
+  LIBS="$PTHREAD_LIBS $LIBS"
+  CFLAGS="$CFLAGS $PTHREAD_CFLAGS"
+], [
+  AC_DEFINE([HAVE_PTHREAD_H], [0], [Define 1 if you have the <pthread.h> header file.])
+])
+
 # Checks for header files.
-AC_CHECK_HEADER([pthread.h],
-		[AC_DEFINE([HAVE_PTHREAD_H], [1], [Define 1 if you have the <pthread.h> header file.])],
-		[AC_DEFINE([HAVE_PTHREAD_H], [0], [Define 1 if you have the <pthread.h> header file.])])
 AC_CHECK_HEADER([unistd.h],
 		[AC_DEFINE([HAVE_UNISTD_H], [1], [Define 1 if you have the <unistd.h> header file.])],
 		[AC_DEFINE([HAVE_UNISTD_H], [0], [Define 1 if you have the <unistd.h> header file.])])

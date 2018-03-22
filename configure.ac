@@ -12,11 +12,11 @@ AC_PROG_CPP
 AC_PROG_INSTALL
 AC_PROG_LN_S
 AC_PROG_MAKE_SET
-AC_PROG_RANLIB
 AM_PROG_AR
 AC_PROG_LIBTOOL
 
 # Checks for libraries.
+gl_LIBUNISTRING
 
 # Checks for header files.
 AC_CHECK_HEADER([pthread.h],

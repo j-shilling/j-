@@ -5,5 +5,4 @@ kavac_SOURCES = main.c \
                 kavac.c
 
 kavac_CFLAGS = -I$(top_srcdir)/include -I$(top_srcdir)/src/include
-kavac_LDADD = $(top_srcdir)/src/shared/libshared.a \
-	      $(srcdir)/lexical/liblexical.a
+kavac_LDADD = $(srcdir)/lexical/liblexical.a

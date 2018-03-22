@@ -35,7 +35,6 @@ AC_CHECK_HEADER([sys/stat.h],
 
 AC_CONFIG_FILES([Makefile
                  src/Makefile
-		 src/shared/Makefile
 		 src/include/Makefile
                  src/kavac/Makefile
 		 src/kavac/lexical/Makefile

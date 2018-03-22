@@ -1,4 +1,3 @@
-SUBDIRS = shared \
-          libkava \
+SUBDIRS = libkava \
 	  kavavm \
 	  kavac

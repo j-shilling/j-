@@ -10,142 +10,225 @@
 #include <string.h>
 #include <errno.h>
 
-typedef struct _char_node {
-  unichar c;
-  struct _char_node *next;
-} char_node;
+#include <unistr.h>
+#include <uninorm.h>
+#include <unictype.h>
+
+typedef struct _string_node {
+  utf8_string string;
+  struct _string_node *next;
+} string_node;
 
 struct _utf8_stream {
   kava_thread thread;
   kava_mutex mutex;
-  kava_cond cond; 
+  kava_cond cond;
+  
   FILE *file;
+  size_t file_size;
+  
   volatile int err;
   volatile int open;
 
-  char_node *head;
-  char_node *tail;
+  string_node *head;
+  string_node *tail;
 };
 
 _Noreturn static void *
 read_file (void *arg)
 {
   utf8_stream *stream = arg;
-  /* stop until an error is found or until the stream is closed */
+  
+  /* lock while we initialize */
+  kava_mutex_lock (&stream->mutex);
+  
+  /* Get file contents */
+  uint8_t *file_buffer = malloc (stream->file_size);
+  if (!file_buffer)
+    {
+      stream->err = errno;
+      kava_mutex_unlock (&stream->mutex);
+      kava_thread_exit (NULL);
+    }
+  if (-1 == kava_read (stream->file, file_buffer, stream->file_size))
+    {
+      stream->err = errno;
+      kava_mutex_unlock (&stream->mutex);
+      kava_thread_exit (NULL);
+    }
+  fclose (stream->file);
+  
+  /* Discover UTF encoding and convert to UTF-8 if necessary */
+  uint8_t *utf8_buffer;
+  size_t utf8_buffer_size;
+  if (u8_check ((const uint8_t *) file_buffer, stream->file_size))
+    {
+      /* Not UTF-8 */
+      if (u16_check ((const uint16_t *) file_buffer, stream->file_size))
+        {
+          /* Not UTF-16 */
+          if (u32_check ((const uint32_t *) file_buffer, stream->file_size))
+            {
+              /* Unrecognized Encoding */
+              stream->err = EENCODING;
+              kava_mutex_unlock (&stream->mutex);
+              kava_thread_exit (NULL);
+            }
+          else
+            {
+              /* File was in UTF-32 */
+              utf8_buffer = u32_to_u8 ((const uint32_t *) file_buffer, 
+                                       stream->file_size,
+                                       NULL, 
+                                       &utf8_buffer_size);
+              free (file_buffer);
+            }
+        }
+      else
+        {
+          /* File was in UTF-16 */
+          utf8_buffer = u16_to_u8 ((const uint16_t *) file_buffer, 
+                                   stream->file_size,
+                                   NULL,
+                                   &utf8_buffer_size);
+          free (file_buffer);
+        }
+    }
+  else
+    {
+      /* File was already UTF-8 */
+      utf8_buffer = file_buffer;
+      utf8_buffer_size = stream->file_size;
+    }
+  
+  /* Normalize UTF-8 Buffer*/
+  size_t buffer_size;
+  uint8_t *buffer = u8_normalize (UNINORM_NFD, utf8_buffer, utf8_buffer_size, NULL, &buffer_size);
+  
+  /* Initialization is complete */
+  kava_mutex_unlock (&stream->mutex);
+  free (utf8_buffer);
+  
+  /* Start to fill the stack */
+  int start = 0;
+  int end = 0;
+  int i = -1;
   while (stream->open && !stream->err)
     {
-      uint8_t byte;
-      if (1 != fread (&byte, 1, 1, stream->file))
-	{
-	  if (feof (stream->file))
-	    stream->open = 0;
-	  else
-	    stream->err = ferror (stream->file);
-	  fclose (stream->file);
-	  stream->file = NULL;
-	  kava_thread_exit (NULL);
-	}
-
-      size_t width;
-      uint8_t width_mask = byte & 0xF0;
-      switch (width_mask)
-	{
-	case 0xF0: width = 4; break;
-	case 0xE0: width = 3; break;
-	case 0xC0: width = 2; break;
-	default:   width = 1; break;
-	}
-
-      unichar c = 0;
-      uint8_t *bytes = (uint8_t *)(&c);
-      bytes[0] = byte;
-
-      for (int i = 1; i < width; i++)
-	{
-	  if (1 != fread (&byte, 1, 1, stream->file))
-	    {
-	      if (feof (stream->file))
-		stream->open = 0;
-	      else
-		stream->err = ferror (stream->file);
-	      fclose (stream->file);
-	      kava_thread_exit (NULL);
-	    }
-
-	  if (byte & 0xC0 != 0x80)
-	    {
-	      stream->err = EENCODING;
-	      fclose (stream->file);
-	      stream->file = NULL;
-	      kava_thread_exit (NULL);
-	    }
-
-	  bytes[i] = byte;
-	}
-
-      char_node *node = malloc (sizeof (char_node));
-      node->c = c;
-      node->next = NULL;
-
-      kava_mutex_lock (&stream->mutex);
-      if (!stream->head)
-	{
-	  stream->head = node;
-	  stream->tail = node;
-	}
+      /* Make sure there is room for i to grow */
+      if (i + 1 >= buffer_size)
+        {
+          stream->open = 0;
+          continue;
+        }
+      
+      /* Get next character */
+      ucs4_t uc;
+      uint8_t byte = buffer[++i];
+      if (byte & 0x80 == 0)
+        uc = byte;
+      else if (byte & 0xE0 == 0xC0)
+        uc = (byte << 8) | buffer[++i];
+      else if (byte & 0xF0 == 0xE0)
+        uc = ((byte << 16) | (buffer[++i] << 8)) | buffer[++i];
       else
-	{
-	  stream->tail->next = node;
-	  stream->tail = node;
-	}
-      kava_cond_signal (&stream->cond);
-      kava_mutex_unlock (&stream->mutex);
+        uc = (((byte << 24) | (buffer[++i] << 16)) | (buffer[++i] << 8)) | buffer[++i];
+      
+      /* Look for line break */
+      if (uc_is_property_line_separator (uc))
+        {
+          string_node *node = malloc (sizeof (string_node));
+          if (!node)
+            {
+              stream->err = errno;
+              continue;
+            }
+          
+          node->next = NULL;
+          node->string.len = end - start;
+          
+          if (node->string.len > 0)
+            {
+              node->string.bytes = malloc (node->string.len);
+              if (!node->string.bytes)
+                {
+                  free (node);
+                  stream->err = errno;
+                  continue;
+                }
+              memcpy (node->string.bytes, buffer + start, node->string.len);
+            }
+          else
+            {
+              node->string.bytes = NULL;
+            }
+          
+          /* Insert node into the stack */
+          kava_mutex_lock (&stream->mutex);
+          if (stream->tail)
+            {
+              stream->tail->next = node;
+              stream->tail = node;
+            }
+          else
+            {
+              stream->head = node;
+              stream->tail = node;
+            }
+          kava_cond_signal (&stream->cond);
+          kava_mutex_unlock (&stream->mutex);
+          
+          start = i + 1;
+          end = start;
+        }
+      else
+        {
+          end = i;
+        }
     }
-
+  
+  /* The stream was closed  */
   kava_mutex_lock (&stream->mutex);
-  if (stream->file)
-    fclose (stream->file);
   kava_cond_signal (&stream->cond);
   kava_mutex_unlock (&stream->mutex);
+  
+  free (buffer);
   kava_thread_exit (NULL);
 }
 
-utf8_stream *
-utf8_stream_from_path (const char *path, int *err)
+int
+utf8_stream_from_path (utf8_stream *const restrict stream, const char *path)
 {
-  utf8_stream *ret = malloc (sizeof (utf8_stream));
-  ret->file = fopen (path, "r");
-  if (!ret->file)
-    {
-      *err = errno;
-      free (ret);
-      return NULL;
-    }
+  stream->file = fopen (path, "r");
+  if (!stream->file)
+    return errno;
 
-  kava_mutex_init (&ret->mutex);
-  kava_cond_init (&ret->cond);
-  ret->head = NULL;
-  ret->tail = NULL;
-  ret->open = 1;
+  kava_mutex_init (&stream->mutex);
+  kava_cond_init (&stream->cond);
+  
+  kava_stat file_stat;
+  kava_read_stat (path, &file_stat);
+  stream->file_size = (size_t) file_stat.st_size;
+  
+  stream->head = NULL;
+  stream->tail = NULL;
+  stream->open = 1;
 
-  ret->err = kava_thread_create (&ret->thread, read_file, ret);
-  if (ret->err)
-    {
-      *err = ret->err;
-      free (ret);
-      return NULL;
-    }
-
-  return ret;
+  return kava_thread_create (&stream->thread, read_file, stream);
 }
 
-unichar
-utf8_stream_next (utf8_stream *const restrict stream, int *const restrict err)
+utf8_string
+utf8_stream_readline (utf8_stream *const restrict stream, int *const restrict err)
 {
+  utf8_string ret = {
+    .bytes = NULL,
+    .len = 0
+  };
+  
   if (!stream)
     {
       *err = EINVAL;
-      return 0;
+      return ret;
     }
 
   kava_mutex_lock (&stream->mutex);
@@ -154,7 +237,7 @@ utf8_stream_next (utf8_stream *const restrict stream, int *const restrict err)
     {
       *err = stream->err;
       kava_mutex_unlock (&stream->mutex);
-      return 0;
+      return ret;
     }
 
   if (!stream->head && stream->open)
@@ -164,45 +247,46 @@ utf8_stream_next (utf8_stream *const restrict stream, int *const restrict err)
   if (stream->head)
     {
       /* stream is not empty */
-      char_node *node = stream->head;
+      string_node *node = stream->head;
       stream->head = stream->head->next;
       if (!stream->head)
 	stream->tail = NULL;
-
-      unichar c = node->c;
-      free (node);
-
       kava_mutex_unlock (&stream->mutex);
-      return c;
+
+      ret.len = node->string.len;
+      ret.bytes = node->string.bytes;
+      free (node);
+      return ret;
     }
   else
     {
       /* stream has been closed */
       kava_mutex_unlock (&stream->mutex);
       *err = EOF;
-      return 0;
+      return ret;
     }
 }
 
-void
-utf8_stream_close (utf8_stream *restrict stream, int *const restrict err)
+int
+utf8_stream_close (utf8_stream *restrict stream)
 {
   if (!stream)
-    return;
+    return 0;
 
   stream->open = 0;
 
-  *err = kava_thread_join (stream->thread, NULL);
-  if (*err)
-    return;
+  int err = kava_thread_join (stream->thread, NULL);
+  if (err)
+    return err;
 
-  char_node *node = stream->head;
+  string_node *node = stream->head;
   while (node)
     {
-      char_node *next = node->next;
+      free (node->string.bytes);
+      string_node *next = node->next;
       free (node);
       node = next;
     }
-
-  free (stream);
+  
+  return 0;
 }

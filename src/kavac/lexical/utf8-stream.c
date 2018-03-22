@@ -14,26 +14,6 @@
 #include <uninorm.h>
 #include <unictype.h>
 
-typedef struct _string_node {
-  utf8_string string;
-  struct _string_node *next;
-} string_node;
-
-struct _utf8_stream {
-  kava_thread thread;
-  kava_mutex mutex;
-  kava_cond cond;
-  
-  FILE *file;
-  size_t file_size;
-  
-  volatile int err;
-  volatile int open;
-
-  string_node *head;
-  string_node *tail;
-};
-
 _Noreturn static void *
 read_file (void *arg)
 {

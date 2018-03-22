@@ -11,6 +11,8 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
+  
+#define kava_unlink(filename)   unlink (filename)
 
 static inline size_t
 kava_read (FILE *file, void *buffer, off_t buffer_length)

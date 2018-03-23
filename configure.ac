@@ -43,6 +43,7 @@ AC_CONFIG_FILES([Makefile
 		 src/include/Makefile
                  src/kavac/Makefile
 		 src/kavac/lexical/Makefile
+                 src/kavac/util/Makefile
                  src/kavavm/Makefile
                  src/libkava/Makefile])
 AC_OUTPUT
